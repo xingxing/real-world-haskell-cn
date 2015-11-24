@@ -1,0 +1,124 @@
+.. 翻译约定:
+.. Monad 决定不翻译使用原文，Monad对于Haskell是很独特并重要的东西可视为专属名词。monadic
+.. lift  晋升 
+
+
+第 15 章： Monad 编程
+=================
+
+高尔夫练习：关联列表
+-------------------
+
+Web客户端和服务器之间经常传递键值对形式的简单文本列表。
+
+::
+
+   name=Attila+%42The+Hun%42&occupation=Khan
+
+这种易于理解的编码方式被称为 ``application/x-www-form-urlencoded`` 。每对键值以一个'&'字符分割。键值对中，"键"值是一串字符，紧跟着一个"="，然后是跟着是"值"。
+
+显然，我们用字符串来表示"键"就行了，但是HTTP规格说明没有明确说"键"必有"值"。于是，我们可以使用 ``Maybe String`` 来表示"值"，从而解决这个歧义。如果我们使用 ``Nothing`` 作为"值"，即是说"值"不存在。如果我们用Just包裹一个字符串，即是"值"存在(译注:虽然值可能为空，例如： Just ""，)。使用Maybe让我们得以区分，"无值"和“空值”。
+
+Haskell程序员将形如 ``[(a,b)]`` 的类型，称为关联列表，我们可以将其中的每个元素视为一对键值关联。这个名字源于Lisp社区，通常被缩写为alist。我们可以用以下Haskell值表示前面的字符串。
+
+.. literalinclude:: /code/ch15/MovieReview.hs
+   :language: haskell
+   :lines: 4-6
+
+在"解析URL-encoded查询字符串"一节，我们将会解析一个 ``application/x-www-form-urlencoded`` 字符串，并用alist ``[(String, Maybe String)]`` 来表示其结果。换句话说我们打算用一种alist来填充下面这个数据结构。
+
+.. literalinclude:: /code/ch15/MovieReview.hs
+   :language: haskell
+   :lines:    8-13
+
+
+我们从批判下面这个明显很幼稚的函数开始。
+
+.. literalinclude:: /code/ch15/MovieReview.hs
+   :language: haskell
+   :lines:    15-27
+
+
+只有alist中所有必要的值都存在并且值全为非空字符串，这个函数才返回 ``MovieReview`` 。然而，实际上验证其输入才是这个函数的价值所在：此函数有严重的"阶梯效应"问题，这我们已经了解过了，是需要警惕的，并且此函数知道alist的细枝末节。
+
+因此我们正好借此了解一下 ``Maybe`` monad，我们可以摆平"阶梯效应"。
+
+.. literalinclude:: /code/ch15/MovieReview.hs
+   :language: haskell
+   :lines:    29-38
+
+.. FIXME 这里不是很通顺。
+
+虽然这个函数整齐了许多，我们还是重复了自己。事实上，我们可以将 ``MovieReview`` 视为一个普通纯函数，然后把这个函数晋升为Monad， 从而获得益处。我们已经在 混用纯函数和Monad一节讨论过了。
+
+.. literalinclude:: /code/ch15/MovieReview.hs
+   :language: haskell
+   :lines:    40-44
+
+我们仍然有重复的地方，但是这个函数已经被大幅简化，也更难以继续简化了。
+
+
+推而广之的晋升
+-------------------
+
+尽管使用 ``liftM3`` 美化了我们的代码，但我们不能使用liftM家族函数来解决这类普遍问题，因为在标准库中只定义到 ``liftM5`` 。我们可以实现一个变体，无论我们需要多少数量的晋升都可以，但这真是个苦差事。
+
+假设你有个结构或纯函数带了，恩，就说十个参数吧，并且坚决打算使用标准库，那我们就没那么走运了。
+
+当然，我们也不是束手无策。在 ``Control.Monad`` 里，有个签名很有趣的函数ap：
+
+::
+
+   ghci> :m +Control.Monad
+   ghci> :type ap
+   ap :: (Monad m) => m (a -> b) -> m a -> m b
+
+你没准会惊讶，谁会放一个单参数纯函数在Monad里呢，又为了什么呢？但是你还记得吗， ``所有的`` Haskell函数其实都是单一参数的，接着你会开始看到这和 ``MovieReview`` 结构之间的关系。
+
+::
+
+   ghci> :type MovieReview
+   MovieReview :: String -> String -> String -> MovieReview
+
+我们将其类型写为: ``String -> (String -> (String -> MovieReview))`` 。如果你用朴素的老 ``liftM`` 来把 ``MovieReview`` 晋升为 ``Maybe`` monad，我们将会得到一个类型为 ``Maybe (String -> (String -> (String -> MovieReview)))`` 的值。我们现在看这个类型是不是就和 ``ap`` 的类型匹配了，这样结果的类型即为 ``Maybe (String -> MovieReview)``了。我们可以依次将其传给 ``ap`` ，串起来，直到定义的结束。
+
+.. literalinclude:: /code/ch15/MovieReview.hs
+   :language: haskell
+   :lines:    46-50
+
+我们可以按需串联使用 ``ap`` ，从而绕开 ``liftM`` 家族的函数。
+
+另一个有助于理解的角度是，将 ``ap`` 视为monad化的 ``($)`` 常见操作符：把 ``ap`` 的发音想成应用(apply)。我们比较两个函数签名时就一目了然了。
+
+::
+
+   ghci> :type ($)
+   ($) :: (a -> b) -> a -> b
+   ghci> :type ap
+   ap :: (Monad m) => m (a -> b) -> m a -> m b
+
+实际上， ``ap`` 通常就被定义为 ``liftM2 id`` 或者 ``liftM2 ($)``。
+
+
+寻找替代品
+------------------
+
+下面是对一个人的电话号码的简单表达：
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    3-15
+
+假如我们想打电话和某人联络。我们不想打办公电话，也不太想打手机，最好是打家庭电话（如果他们有的话）。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    19-22
+
+当然，如果我们使用 ``Maybe`` 作为结果类型，就无力按照我们的标准表达多于一个号码的可能性。因此，我们选择了列表。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    24-32
+
+注意这两个函数结构中的 ``case`` 表达式是很相似的：
