@@ -121,4 +121,111 @@ Haskell程序员将形如 ``[(a,b)]`` 的类型，称为关联列表，我们可
    :language: haskell
    :lines:    24-32
 
-注意这两个函数结构中的 ``case`` 表达式是很相似的：
+注意这两个函数结构中的 ``case`` 表达式是很相似的：一个分支处理返回空结果的情况，另一个处理返回非空的情况。
+
+::
+
+  ghci> onePersonalPhone twalumba
+  Nothing
+  ghci> onePersonalPhone albulena
+  Just "+355-652-55512"
+  ghci> allBusinessPhones nils
+  ["+47-922-12-121","+47-922-25-551"]
+
+Haskell的 ``Control.Monad`` 模块定义了一个类型类， ``MonadPlus``, 让我们可以抽象出 ``case`` 表达式的这种一般模式。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    34-37
+
+``mzero`` 表示空返回值，``mplus`` 将两个结果合二为一。下面是 ``mzero`` 和 ``mplus`` 在 ``Maybe`` 和列表上的标准定义。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    44-48
+
+我们现在完全可以用 ``mplus`` 摆脱 ``case`` 表达式了。为了不重复，我们来获取一个商务电话(没有办公室电话就打手机)和所有个人电话(家庭电话+手机)。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    44-48
+
+在这两个函数中，因为我们知道 ``lookup`` 返回一个 ``Maybe`` 值，而 ``filter`` 返回一个列表，哪个版本的 ``mplus`` 会被用到就是显而易见的了。
+
+更有趣的是，对所有 ``MonadPlus`` 的实例，我们都可以使用 ``mzero`` 和 ``mplus`` 来实现函数。举个例子，下面是个标准的 ``lookup`` 函数，返回一个 ``Maybe`` 值。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    58-62
+
+我们可以简单地归纳出所有 ``MonadPlus`` 实例的结果类型，就像这这样。
+
+.. literalinclude:: /code/ch15/VCard.hs
+   :language: haskell
+   :lines:    64-68
+
+如果我们的结果类型是 ``Maybe`` ，要么没有结果，要么就返回一个结果。如果结果类型是列表就得到所有结果。其他 ``MonadPlus`` 的实例以此类推。
+
+在小函数中，像我们上面的那些代码，使用 ``mplus`` 不会来带多大的好处。妙处在更复杂的代码中，并且这些代码的执行是不依赖 ``monad`` 的。即使你的代码中无需使用 ``MonadPlus`` ，也很可能在他人的项目中碰到它。
+
+
+mplus不意味着加法
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+即便 ``mplus` 函数名包含"plus"，你也许会觉得这必定暗示着我们会尝试将两个值加和。
+
+由于我们正在了解的Monad， ``mplus`` 看起来像是实现一种类似加和的操作。举例来说， ``mplus`` 在列表monad中是用(++)操作符实现的。
+
+::
+
+   ghci> [1,2,3] `mplus` [4,5,6]
+   [1,2,3,4,5,6]
+
+然而，如果你选择另一个monad，明显就与加和背道而驰了。
+
+::
+
+   ghci> Just 1 `mplus` Just 2
+   Just 1
+
+使用MonadPlus的法则
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``MonadPlus`` 类型类的实例必须遵从一些简单的法则，当然要在通常的monad法则基础上。
+
+实例必须 ``短路`` ，如果 ``mzero`` 出现在绑定表达式的左边。换句话说，表达式 ``mzero >>= f`` 必须求值成与单独调用 ``mzero`` 的结果一致。
+
+.. literalinclude:: /code/ch15/MonadPlus.hs
+   :language: haskell
+   :lines:    3-4
+
+如 ``mzero`` 出现在顺序表达式的右边的时候，实例必须 ``短路`` 。
+
+.. literalinclude:: /code/ch15/MonadPlus.hs
+   :language: haskell
+   :lines:    3-4
+
+用MonadPlus软着陆
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+在"Monad类型类"一节我们介绍 ``fail`` 函数的时候，我们曾煞费苦心地警告：在许多monad中，它被实现为 ``error`` 调用 ，并会发生不好的事情。
+
+``MonadPlus`` 类型类给我们提供一种平稳的方式来让一个计算失败，不会让 ``fail`` 和 ``error`` 毁了我们。我们上面介绍的法则允许，我们在代码中任何需要的地方引入 ``mzero`` ，并使计算在那短路。
+
+在 ``Control.Monad`` 模块中，标准方法 ``guard`` 以一种方便的形式包装了此方法。
+
+.. literalinclude:: /code/ch15/MonadPlus.hs
+   :language: haskell
+   :lines:    9-12
+
+举例来说，下面这个方法给定一个数字 ``x`` 并计算它与另一个数字的模。如果结果是零，就返回 ``x`` ，否则就返回当前monad的 ``mzero`` 。
+
+.. literalinclude:: /code/ch15/MonadPlus.hs
+   :language: haskell
+   :lines:    14-15
+
+在暗道里冒险
+---------------------------------
+
+在"使用状态Monad：生成随机值" 一节中，我们展示了如何使用 ``State`` monad以易用方式获取随机数。
+
